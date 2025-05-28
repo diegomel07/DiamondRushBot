@@ -1,0 +1,23 @@
+Conflictos:
+
+2 - personaje (11) y bloque de arriba
+3 - salida (12)
+4 - salida (12)
+5 - perfecto
+6 - salida (12)
+7 - salida (12)
+8 - personaje (11), salida (12) y fila 3
+9 - personaje y bloque de arriba, salida (10)
+10 -  personaje y bloque de arriba salida (12)
+11 - perfecto
+12 - personaje y bloque de arriba, salida (12)
+13 - personaje, salida (12)
+14 - llave (11) personaje (11)
+15 - personaje y bloque de arriba
+16 - salida (10)
+17 - personaje y bloque de arriba, salida (10)
+18 - personaje y bloque de arriba, salida (12)
+19 - personaje y bloque de arriba
+20 - perfecto
+
+
