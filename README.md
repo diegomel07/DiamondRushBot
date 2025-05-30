@@ -7,11 +7,11 @@ Este proyecto es un bot diseñado para analizar y resolver niveles del juego **D
 Ejecuta los siguientes comandos en una terminal para compilar los archivos fuente:
 
 ```bash
-# Compilar tomar_captura.cpp (requiere la biblioteca X11)
-g++ tomar_captura.cpp -o tomar_captura -lX11
 
-# Compilar procesamiento_imagen.cpp
-g++ procesamiento_imagen.cpp -o procesamiento_imagen
+make
+
+make run
+
 ```
 
 ## Dependencia libx11-dev y X11

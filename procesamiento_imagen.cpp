@@ -7,6 +7,8 @@
 #include <iomanip>
 #include <fstream>
 #include <sstream>
+#include <chrono> // Agrega esto al inicio del archivo
+#include <omp.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -18,7 +20,10 @@ struct TileTemplate {
     string name;
     vector<unsigned char> data;
     int w, h, c;
+    int negros, cafes, blancos, otros; // histogramas preprocesados
 };
+
+int tomar_captura();
 
 // Funciones de carga de imágenes
 unsigned char* cargar_imagen(const string& filename, int& width, int& height, int& channels) {
@@ -29,14 +34,28 @@ unsigned char* cargar_imagen(const string& filename, int& width, int& height, in
     return img;
 }
 
-vector<TileTemplate> cargar_plantillas(int block_w, int block_h, int cantidad) {
+// Nueva función para leer los histogramas preprocesados
+vector<TileTemplate> cargar_plantillas_preprocesadas(const string& archivo, int cantidad) {
     vector<TileTemplate> templates;
+    ifstream fin(archivo);
+    if (!fin) {
+        cerr << "No se pudo abrir " << archivo << endl;
+        return templates;
+    }
     for (int i = 0; i < cantidad; ++i) {
-        string fname = "tiles/tile" + to_string(i) + ".png";
+        string fname;
+        int w, h, n, caf, bla, o;
+        if (!(fin >> fname >> w >> h >> n >> caf >> bla >> o)) break;
+        int c = 3;
+        // Si necesitas la imagen para comparar píxel a píxel:
         int tw, th, tc;
         unsigned char* tdata = cargar_imagen(fname, tw, th, tc);
-        templates.push_back({fname, vector<unsigned char>(tdata, tdata + tw * th * 3), tw, th, 3});
-        stbi_image_free(tdata);
+        vector<unsigned char> data;
+        if (tdata) {
+            data.assign(tdata, tdata + tw * th * 3);
+            stbi_image_free(tdata);
+        }
+        templates.push_back({fname, data, w, h, c, n, caf, bla, o});
     }
     return templates;
 }
@@ -116,28 +135,27 @@ double calc_mae(const vector<unsigned char>& cell, const vector<unsigned char>& 
 vector<vector<int>> clasificar_celdas(const unsigned char* img, int width, int height,
                                     int filas, int columnas, int block_w, int block_h,
                                     const vector<TileTemplate>& templates) {
-    
     vector<vector<int>> etiquetas(filas, vector<int>(columnas, -1));
     unordered_map<int, int> tile_to_tipo = {
-        {3, 1}, {4, 1}, {11, 1}, {12, 1}, {13, 1}, {14, 1}, {15, 1}, {16, 1}, // pared 
-        {7, 0},  // piso
-        {0, 2},  // diamante
-        {2, 3},  // llave
-        {5, 4},  // personaje
-        {8, 5},  // puerta
-        {6, 6},  // piedra
-        {9, 7}, {25, 7}, {17, 7}, // pinchos
-        {10, 8}, // salida
-        {1, 9},  // hueco
-        {18, 10}, {19, 10}, {20, 10}, {21, 10}, {22, 10}, {23, 10}, {24, 10}, // lava
-        {26, 11}, // reja
-        {27, 12},  // boton
-        {28, 13}  // estatua
+        {3, 1}, {4, 1}, {11, 1}, {12, 1}, {13, 1}, {14, 1}, {15, 1}, {16, 1},
+        {7, 0}, {0, 2}, {2, 3}, {5, 4}, {8, 5}, {6, 6}, {9, 7}, {25, 7}, {17, 7},
+        {10, 8}, {1, 9}, {18, 10}, {19, 10}, {20, 10}, {21, 10}, {22, 10}, {23, 10}, {24, 10},
+        {26, 11}, {27, 12}, {28, 13}
     };
 
-    // Variables para guardar la posición a bloquear
-    int bloquear_i = -1, bloquear_j = -1;
+    // --- Fase 1: Detectar personajes y marcar bloques bloqueados ---
+    vector<vector<bool>> bloque_bloqueado(filas, vector<bool>(columnas, false));
+    for (int i = filas - 1; i >= 0; --i) {
+        for (int j = 0; j < columnas; ++j) {
+            vector<unsigned char> cell = extraer_celda(img, width, height, block_w, block_h, i, j);
+            if (es_personaje(cell) && i > 0) {
+                bloque_bloqueado[i-1][j] = true;
+            }
+        }
+    }
 
+    // --- Fase 2: Clasificación paralelizada ---
+    #pragma omp parallel for collapse(2) schedule(dynamic)
     for (int i = filas - 1; i >= 0; --i) {
         for (int j = 0; j < columnas; ++j) {
 
@@ -149,67 +167,30 @@ vector<vector<int>> clasificar_celdas(const unsigned char* img, int width, int h
 
             vector<unsigned char> cell = extraer_celda(img, width, height, block_w, block_h, i, j);
 
-            // Si la celda es un diamante
             bool tiene_color_diamante = false;
+            bool tiene_color_llave = false;
+            bool tiene_color_pared = false;
+            bool tiene_color_salida = false;
+            bool tiene_gris = false;
+            bool tiene_cafe = false;
+            bool color_piso = false;
             for (size_t idx = 0; idx < cell.size(); idx += 3) {
                 unsigned char r = cell[idx], g = cell[idx+1], b = cell[idx+2];
+
                 if ((r == 67 || r == 66) && (g == 76 || g == 78) && (b  == 63 || b == 64)) {
                     tiene_color_diamante = true;
                     break;
                 }
-            }
-
-            if (tiene_color_diamante) {
-                etiquetas[i][j] = 2;
-                continue;
-            }
-
-            // si la celda es una llave
-            bool tiene_color_llave = false;
-            for (size_t idx = 0; idx < cell.size(); idx += 3) {
-                unsigned char r = cell[idx], g = cell[idx+1], b = cell[idx+2];
                 if (r == 57 && g == 237 && b == 218) {
                     tiene_color_llave = true;
                     break;
                 }
-            }
-
-            if (tiene_color_llave) {
-                etiquetas[i][j] = 3;
-                continue;
-            }
-
-
-            // si tiene el color del menu (gris) es una pared, pero si hay color de piso, es piso
-            bool tiene_color_pared = false;
-            bool color_piso = false;
-            for (size_t idx = 0; idx < cell.size(); idx += 3) {
-                unsigned char r = cell[idx], g = cell[idx+1], b = cell[idx+2];
                 if ((r == 63 && g == 40 && b == 28)) {
                     color_piso = true;
                 }
                 if (r == 38 && g == 38 && b == 38) {
                     tiene_color_pared = true;
                 }
-            }
-
-            if (tiene_color_pared) {
-                if (color_piso){
-                    etiquetas[i][j] = 0;
-                    continue;
-                }
-                etiquetas[i][j] = 1;
-                continue;
-            }
-            
-
-            // Si es un bloque de salida
-            bool tiene_color_salida = false;
-            bool tiene_gris = false;
-            bool tiene_cafe = false;
-
-            for (size_t idx = 0; idx < cell.size(); idx += 3) {
-                unsigned char r = cell[idx], g = cell[idx+1], b = cell[idx+2];
                 if ((r <= 162 && r >= 155) && (g >= 150 && g <= 160) && (b >= 150 && b <= 160)) {
                     tiene_gris = true;
                 }
@@ -220,26 +201,36 @@ vector<vector<int>> clasificar_celdas(const unsigned char* img, int width, int h
                     tiene_color_salida = true;
                     break;
                 }
-                
             }
 
+            if (tiene_color_diamante) {
+                etiquetas[i][j] = 2;
+                continue;
+            }
+            if (tiene_color_llave) {
+                etiquetas[i][j] = 3;
+                continue;
+            }
+            if (tiene_color_pared) {
+                if (color_piso){
+                    etiquetas[i][j] = 0;
+                    continue;
+                }
+                etiquetas[i][j] = 1;
+                continue;
+            }
             if (tiene_color_salida) {
                 etiquetas[i][j] = 8;
                 continue;
             }
-
-            // Si es personaje, guarda la posición del bloque de arriba
             if (es_personaje(cell)) {
                 etiquetas[i][j] = 4;
-                if (i > 0) {
-                    bloquear_i = i - 1;
-                    bloquear_j = j;
-                }
                 continue;
             }
 
-            
-            // Revision de los demas boques
+            // --- Aquí usa bloque_bloqueado[i][j] ---
+            bool es_bloque_bloqueado = bloque_bloqueado[i][j];
+
             double min_diff = numeric_limits<double>::max();
             int best_idx = -1;
             for (size_t t = 0; t < templates.size(); ++t) {
@@ -247,57 +238,34 @@ vector<vector<int>> clasificar_celdas(const unsigned char* img, int width, int h
                 int x0 = w / 4, x1 = 3 * w / 4;
                 int y0 = h / 4, y1 = 3 * h / 4;
 
-                bool es_bloque_bloqueado = (i == bloquear_i && j == bloquear_j);
                 double diff = 0;
-                
-                // bloque de encima del personaje
                 if (es_bloque_bloqueado) {
-
-                    // --- Error medio absoluto en todo el bloque ---
                     double mae = calc_mae(cell, templates[t].data, w, h, 0, 0, w);
-                    
-
-                    // --- Error medio en la región central ---
                     double diff_central = calc_mae(cell, templates[t].data, x1, y1, x0, y0, w);
-                    
-                    // --- Histograma de color ---
                     int n1, c1, b1, o1, n2, c2, b2, o2;
                     histograma(cell, n1, c1, b1, o1);
                     histograma(templates[t].data, n2, c2, b2, o2);
                     double diff_hist = abs(n1-n2) + abs(c1-c2) + abs(b1-b2) + abs(o1-o2);
-
-
-                    // Valor de cada componente de los errores
                     double peso_hist = 0.035;
                     double peso_mae = 1.0;
                     double peso_central = 2.0;
                     diff = peso_mae * mae + peso_central * diff_central + peso_hist * diff_hist;
-
                 } else {
-                    // --- Lógica para los demas bloques ---
-
-                    // --- Error medio en la region central ---
                     double diff_central = calc_mae(cell, templates[t].data, x1, y1, x0, y0, w);
-
-                    // --- Histograma de color ---
                     int n1, c1, b1, o1, n2, c2, b2, o2;
                     histograma(cell, n1, c1, b1, o1);
                     histograma(templates[t].data, n2, c2, b2, o2);
                     double diff_hist = abs(n1-n2) + abs(c1-c2) + abs(b1-b2) + abs(o1-o2);
-
                     double peso_hist = 0.079;
                     double peso_central = 3;
                     diff = peso_hist * diff_hist + peso_central * diff_central;
                 }
-
                 if (diff < min_diff) {
                     min_diff = diff;
                     best_idx = t;
                 }
             }
-            
             etiquetas[i][j] = tile_to_tipo.count(best_idx) ? tile_to_tipo[best_idx] : best_idx;
-            
         }
     }
     return etiquetas;
@@ -351,65 +319,75 @@ void imprimir_matriz(const vector<vector<int>>& etiquetas) {
 }
 
 int main() {
+
+    using namespace chrono;
+    auto start = high_resolution_clock::now(); // Marca el inicio
+
+    tomar_captura();
+
+
     int width, height, channels;
     int filas = 15;
     int columnas = 10;
     int cant_tiles = 29;
     int cont_matri_confl = 0;
 
+    unsigned char* img = cargar_imagen("captura_firefox.png", width, height, channels);
 
-    // unsigned char* img = cargar_imagen("captura_firefox.png", width, height, channels);
-    // if (!img) {
-    //     cerr << "No se pudo cargar " << img << endl;
-    //     return 1;
-    // }
-
-    // int block_h = round((float)height / filas);
-    // int block_w = round((float)width / columnas);
-
-    // vector<TileTemplate> templates = cargar_plantillas(block_w, block_h, cant_tiles);
-    // vector<vector<int>> etiquetas = clasificar_celdas(img, width, height, filas, columnas, block_w, block_h, templates);
-    
-    // imprimir_matriz(etiquetas);
-    // stbi_image_free(img);
-
-    // Leer matrices de referencia
-    vector<vector<vector<int>>> matrices_ref = leer_matrices_archivo("niveles.txt", filas, columnas);
-
-    int idx_ref = 0;
-    for (int nivel = 2; nivel <= 20; ++nivel, ++idx_ref) {
-        string fname = "niveles/nivel" + to_string(nivel) + ".png";
-        unsigned char* img = cargar_imagen(fname, width, height, channels);
-        if (!img) {
-            cerr << "No se pudo cargar " << fname << endl;
-            continue;
-        }
-
-        int block_h = round((float)height / filas);
-        int block_w = round((float)width / columnas);
-
-        vector<TileTemplate> templates = cargar_plantillas(block_w, block_h, cant_tiles);
-        vector<vector<int>> etiquetas = clasificar_celdas(img, width, height, filas, columnas, block_w, block_h, templates);
-
-        // Comparar con la matriz de referencia
-        if (idx_ref >= matrices_ref.size() || !matrices_iguales(etiquetas, matrices_ref[idx_ref])) {
-            cont_matri_confl++;
-            cout << "Diferencia en nivel " << nivel << ":\n";
-            cout << "Generada:\n";
-            imprimir_matriz(etiquetas);
-            cout << "Referencia:\n";
-            if (idx_ref < matrices_ref.size())
-                imprimir_matriz(matrices_ref[idx_ref]);
-            else
-                cout << "(No hay matriz de referencia)\n";
-            cout << endl;
-        }
-
-        stbi_image_free(img);
+    if (!img) {
+        cerr << "No se pudo cargar " << img << endl;
+        return 1;
     }
 
-    cout << "Total de matrices con conflicto: " << cont_matri_confl << endl;
+    int block_h = round((float)height / filas);
+    int block_w = round((float)width / columnas);
+
+    vector<TileTemplate> templates = cargar_plantillas_preprocesadas("plantillas_preprocesadas.txt", cant_tiles);
+    vector<vector<int>> etiquetas = clasificar_celdas(img, width, height, filas, columnas, block_w, block_h, templates);
+
+    imprimir_matriz(etiquetas);
+    stbi_image_free(img);
+
+    //Leer matrices de referencia
+    // vector<vector<vector<int>>> matrices_ref = leer_matrices_archivo("niveles.txt", filas, columnas);
+
+    // int idx_ref = 0;
+    // for (int nivel = 2; nivel <= 20; ++nivel, ++idx_ref) {
+    //     string fname = "niveles/nivel" + to_string(nivel) + ".png";
+    //     unsigned char* img = cargar_imagen(fname, width, height, channels);
+    //     if (!img) {
+    //         cerr << "No se pudo cargar " << fname << endl;
+    //         continue;
+    //     }
+
+    //     int block_h = round((float)height / filas);
+    //     int block_w = round((float)width / columnas);
+
+    //     vector<TileTemplate> templates = cargar_plantillas_preprocesadas("plantillas_preprocesadas.txt", cant_tiles);
+    //     vector<vector<int>> etiquetas = clasificar_celdas(img, width, height, filas, columnas, block_w, block_h, templates);
+
+    //     // Comparar con la matriz de referencia
+    //     if (idx_ref >= matrices_ref.size() || !matrices_iguales(etiquetas, matrices_ref[idx_ref])) {
+    //         cont_matri_confl++;
+    //         cout << "Diferencia en nivel " << nivel << ":\n";
+    //         cout << "Generada:\n";
+    //         imprimir_matriz(etiquetas);
+    //         cout << "Referencia:\n";
+    //         if (idx_ref < matrices_ref.size())
+    //             imprimir_matriz(matrices_ref[idx_ref]);
+    //         else
+    //             cout << "(No hay matriz de referencia)\n";
+    //         cout << endl;
+    //     }
+
+    //     stbi_image_free(img);
+    // }
+
+    // cout << "Total de matrices con conflicto: " << cont_matri_confl << endl;
+
+    auto end = high_resolution_clock::now(); // Marca el final
+    auto duration = duration_cast<milliseconds>(end - start);
+    cout << "Tiempo de ejecución Total Programa: " << duration.count() << " ms" << endl;
 
     return 0;
 }
-

@@ -58,6 +58,9 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "set": "cpp",
-        "bitset": "cpp"
+        "bitset": "cpp",
+        "complex": "cpp",
+        "fstream": "cpp",
+        "cinttypes": "cpp"
     }
 }

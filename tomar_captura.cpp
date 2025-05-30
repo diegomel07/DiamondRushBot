@@ -6,6 +6,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <chrono> // Agrega esto al inicio
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -85,8 +86,9 @@ void ImageFromWindowRegion(
     XDestroyImage(img);
 }
 
-int main()
+int tomar_captura()
 {
+
     int Width, Height, BitsPerPixel;
     vector<uint8_t> Pixels;
 
