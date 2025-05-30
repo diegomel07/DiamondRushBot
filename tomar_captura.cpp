@@ -61,6 +61,10 @@ void ImageFromWindowRegion(
     Height = region_height;
 
     XImage* img = XGetImage(display, win, offset_x, offset_y, Width, Height, AllPlanes, ZPixmap);
+    if (!img) {
+        cerr << "Error al obtener la imagen de la ventana.\n";
+        return;
+    }
     BitsPerPixel = img->bits_per_pixel;
     Pixels.resize(Width * Height * 4);
 
@@ -100,6 +104,7 @@ int main()
         return 1;
     }
 
+    cout << "Ventana de Firefox encontrada: " << firefoxWin << "\n";    
     int canvas_offset_x = 666;
     int canvas_offset_y = 276;
     int canvas_width = 427;
