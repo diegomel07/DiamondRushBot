@@ -108,7 +108,7 @@ int tomar_captura()
 
     cout << "Ventana de Firefox encontrada: " << firefoxWin << "\n";    
     int canvas_offset_x = 666;
-    int canvas_offset_y = 276;
+    int canvas_offset_y = 275;
     int canvas_width = 427;
     int canvas_height = 640;
 

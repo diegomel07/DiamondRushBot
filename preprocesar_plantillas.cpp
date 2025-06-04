@@ -27,7 +27,7 @@ void histograma(const vector<unsigned char>& img, int& negros, int& cafes, int& 
 }
 
 int main() {
-    int cant_tiles = 29;
+    int cant_tiles = 45;
     ofstream fout("plantillas_preprocesadas.txt");
     if (!fout) {
         cerr << "No se pudo abrir el archivo de salida." << endl;
