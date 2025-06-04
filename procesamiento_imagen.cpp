@@ -353,7 +353,7 @@ vector<vector<int>> clasificar_celdas(const unsigned char* img, int width, int h
 
                     vector<int> hist_central_cell = calcular_histograma_rgb(region_cell, 4);
                     vector<int> hist_central_template = calcular_histograma_rgb(region_template, 4);
-
+                            
                     //normalizar_histograma(hist_central_cell);
                     //normalizar_histograma(hist_central_template);
                     double diff_central = chi2_hist(hist_central_cell, hist_central_template);
